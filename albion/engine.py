@@ -188,6 +188,7 @@ def enrich_liquidity(rows: list, prices: Prices, cfg: dict, budget: float,
         for r in group:
             info = hist.get(r.item_id, {})
             r.sold_per_day = info.get("per_day", 0.0)
+            r.trend = info.get("series", [])
             sell_avg[r.item_id] = info.get("avg_price", 0)
 
     # После сверки цен с историей часть позиций теряет смысл — пересеиваем
@@ -275,8 +276,13 @@ def _revalue(rows: list, prices: Prices, cfg: dict, budget: float) -> list:
         )
         if not fresh:
             continue
-        # переносим уже собранные сведения о спросе
+        # переносим уже собранные сведения о спросе — craft.evaluate() создаёт
+        # СВЕЖИЙ объект с пустыми полями по умолчанию, включая trend, поэтому
+        # без явного переноса график цены пропадал бы у любой позиции,
+        # прошедшей через пересчёт тонких ордеров (а в полном прогоне это
+        # почти всегда).
         fresh.sold_per_day = r.sold_per_day
+        fresh.trend = r.trend
         fresh.variants = r.variants
         if fresh.profit >= f["min_profit_silver"] and fresh.margin_pct >= f["min_margin_pct"]:
             kept.append(fresh)

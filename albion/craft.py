@@ -52,6 +52,7 @@ class Result:
     batch_cost: float = 0.0   # вложить за рейс
     batch_profit: float = 0.0 # снять за рейс
     batch_focus: float = 0.0  # сколько фокуса съест партия
+    trend: list = field(default_factory=list)  # цена по дням для спарклайна
 
     @property
     def profit_per_day(self) -> float:

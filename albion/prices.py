@@ -140,6 +140,9 @@ class Prices:
                     "per_day": round(sold / max(len(points), 1), 1),
                     "avg_price": round(sum(prices) / len(prices)) if prices else 0,
                     "days": len(points),
+                    # Ряд по дням для спарклайна — точки без сделок (avg_price=0)
+                    # пропускаем, а не рисуем нулём, иначе график врёт про обвал цены.
+                    "series": [p["avg_price"] for p in points if p.get("avg_price")],
                 }
         return out
 

@@ -98,6 +98,7 @@ def row_json(r, recs: dict) -> dict:
         "capped": r.price_capped,
         "focus": round(r.focus_cost),
         "age": round(r.data_age_h, 1),
+        "trend": [round(p) for p in r.trend],
         "recipe": [
             {"id": m["id"], "n": m["count"], "p": m["price"], "ret": m["returnable"]}
             for m in r.recipe
