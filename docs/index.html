@@ -87,6 +87,30 @@
     border-radius: 6px; color: var(--dim); font-size: 13px;
   }
   .note b { color: var(--text); }
+  .hint {
+    margin: 0 0 16px; padding: 12px 16px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; color: #c8cdd8;
+    font-size: 13px; line-height: 1.5;
+  }
+
+  /* ——— поиск и категории ——— */
+  .filter-row {
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 14px;
+  }
+  #search {
+    flex: 1; min-width: 220px; padding: 8px 12px; background: #11131a;
+    color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    font-size: 14px;
+  }
+  #search::placeholder { color: var(--dim); }
+  .cat-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .cat {
+    padding: 7px 13px; background: transparent; border: 1px solid var(--line);
+    color: var(--dim); border-radius: 6px; font-size: 13px;
+  }
+  .cat.active { background: #262b35; color: var(--text); border-color: #3a4150; }
+
   /* ——— план на бюджет ——— */
   .plan-form {
     display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
@@ -179,7 +203,8 @@
 
 
   <div class="tabs">
-    <button id="tabTable" class="tab active">таблица</button>
+    <button id="tabTable" class="tab active">крафт</button>
+    <button id="tabFlip" class="tab">флиппинг</button>
     <button id="tabPlan" class="tab">план на бюджет</button>
     <button id="tabGuide" class="tab">гайд</button>
   </div>
@@ -237,7 +262,45 @@
   </div>
 </div>
 
+<div class="wrap" id="flipView" hidden>
+  <p class="hint">
+    Купить готовую вещь дёшево у игрока в городе (по выставленному ордеру),
+    привезти в Кэрлеон и продать на Чёрный рынок. Без крафта вообще —
+    мастерство и рецепты тут ни при чём, только разница цен между городом
+    и Чёрным рынком.
+  </p>
+  <div class="cards" id="flipCards"></div>
+  <table>
+    <thead>
+      <tr>
+        <th title="Название предмета и уровень зачарования">предмет</th>
+        <th title="Где купить дешевле всего">город закупки</th>
+        <th title="Цена покупки в городе">цена в городе</th>
+        <th title="Чистая прибыль со штуки после налога">приб./шт</th>
+        <th title="Прибыль к цене закупки">маржа</th>
+        <th title="Сколько штук в день реально скупает Чёрный рынок">спрос</th>
+        <th title="Сколько штук в день реально продаётся в городе закупки — по этому же полю проверяется ловушка «тонкого» ордера">предложение</th>
+        <th title="Сколько штук имеет смысл купить при твоём бюджете">партия</th>
+        <th title="Сколько серебра вложить">вложить</th>
+        <th title="Сколько снять чистыми">снять</th>
+        <th title="instant — Чёрный рынок выкупит сразу; order — надо выставить и ждать">режим</th>
+      </tr>
+    </thead>
+    <tbody id="flipRows"></tbody>
+  </table>
+</div>
+
 <div class="wrap" id="tableView">
+  <div class="filter-row">
+    <input type="search" id="search" placeholder="поиск по названию, например «сапоги» или «эликсир»"
+           title="Ищет среди уже прибыльных позиций текущего режима, а не по всей базе предметов игры">
+    <div class="cat-tabs" id="catTabs">
+      <button class="cat active" data-cat="all">все</button>
+      <button class="cat" data-cat="gear">снаряжение</button>
+      <button class="cat" data-cat="refine">переработка</button>
+      <button class="cat" data-cat="consumable">расходники</button>
+    </div>
+  </div>
   <div class="cards" id="cards"></div>
   <table>
     <thead>
@@ -280,6 +343,15 @@
 
 <script>
 const fmt = n => (n === null || n === undefined) ? "—" : Math.round(n).toLocaleString("ru-RU");
+
+// Названия предметов приходят из игровых дампов (ao-bin-dumps), не от пользователя,
+// но данные строятся автосборкой без ручного просмотра каждого запуска — экранируем
+// на всякий случай, чтобы компрометация источника данных не превратилась в XSS.
+const escEl = document.createElement("span");
+function esc(s) {
+  escEl.textContent = s ?? "";
+  return escEl.innerHTML;
+}
 let timer = null;
 
 // Данные разбиты по файлам: index.json — общая часть (имена, счётчики),
@@ -306,6 +378,41 @@ async function fetchMode(key) {
   const data = await resp.json();
   modeCache[key] = data;
   return data;
+}
+
+let currentCat = "all";
+let currentSearch = "";
+
+const CAT_LABELS = { all: "все", gear: "снаряжение", refine: "переработка", consumable: "расходники" };
+
+function updateCatCounts(rows) {
+  const counts = { all: rows.length, gear: 0, refine: 0, consumable: 0 };
+  for (const r of rows) counts[r.cat] = (counts[r.cat] || 0) + 1;
+  const onBM = document.getElementById("place").value === "bm";
+  document.querySelectorAll("#catTabs .cat").forEach(btn => {
+    const cat = btn.dataset.cat;
+    const n = counts[cat] || 0;
+    btn.textContent = `${CAT_LABELS[cat]} (${n})`;
+    // Чёрный рынок физически не покупает сырьё и расходники — это игровая
+    // механика, не баг фильтра. Ноль тут ожидаем, и стоит объяснить, а не
+    // оставлять пользователя гадать, почему категория пустая.
+    btn.title = (n === 0 && onBM && (cat === "refine" || cat === "consumable"))
+      ? "Чёрный рынок не покупает сырьё и расходники — переключи «сбыт» на «на месте»"
+      : "";
+  });
+}
+
+// Поиск и категория — тоже на клиенте, без обращения к серверу. Применяются
+// ДО расчёта бюджета: иначе обрезка топ-60 могла бы скрыть то, что находится
+// поиском, но не попало в первую сотню по прибыли.
+function filterRows(rows) {
+  let out = rows;
+  if (currentCat !== "all") out = out.filter(r => r.cat === currentCat);
+  if (currentSearch) {
+    const q = currentSearch.toLowerCase();
+    out = out.filter(r => r.name.toLowerCase().includes(q));
+  }
+  return out;
 }
 
 // Бюджет применяется здесь, в браузере: он только отбирает готовые строки
@@ -347,7 +454,9 @@ async function load() {
     return;
   }
 
-  const priced = applyBudget(mode.rows, budget);
+  updateCatCounts(mode.rows);
+  const filtered = filterRows(mode.rows);
+  const priced = applyBudget(filtered, budget);
   render({
     updated_at: INDEX.generated_at,
     status: "данные обновляются автоматически",
@@ -380,9 +489,10 @@ function render(d) {
 
   const tbody = document.getElementById("rows");
   if (!d.rows.length) {
-    tbody.innerHTML = `<tr><td colspan="13" class="empty">${
-      d.busy ? "считаю, подожди минуту…" : "ничего не проходит фильтры — подними бюджет или ослабь пороги в config.json"
-    }</td></tr>`;
+    let reason = "ничего не проходит фильтры — подними бюджет";
+    if (currentSearch) reason = `по запросу «${esc(currentSearch)}» ничего не нашлось среди прибыльных позиций`;
+    else if (currentCat !== "all") reason = `в категории «${CAT_LABELS[currentCat]}» пусто под текущий бюджет`;
+    tbody.innerHTML = `<tr><td colspan="13" class="empty">${d.busy ? "считаю, подожди минуту…" : reason}</td></tr>`;
     return;
   }
 
@@ -391,15 +501,15 @@ function render(d) {
     const flag = r.unknown ? '<span class="flag" title="по части материалов нет истории торгов — проверь объём в игре">?</span>' : "";
     const age = r.age > 6 ? `<span class="old" title="цена собрана ${r.age} ч назад">${r.age}ч</span>` : "";
     const recipe = r.recipe.map(m =>
-      `${(INDEX.names && INDEX.names[m.id]) || m.id} x${m.n} по ${fmt(m.p)}${m.ret ? "" : " (без возврата)"}`
+      `${esc((INDEX.names && INDEX.names[m.id]) || m.id)} x${m.n} по ${fmt(m.p)}${m.ret ? "" : " (без возврата)"}`
     ).join("<br>");
     return `<tr>
       <td>
-        <span class="name">${r.name}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}
+        <span class="name">${esc(r.name)}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}
         <details class="recipe"><summary>состав ${age}</summary><div>${recipe}</div></details>
       </td>
       <td><span class="tag ${r.method}">${r.method === "upgrade" ? "рунами" : "крафт"}</span></td>
-      <td>${r.buy}${ r.sell && r.sell !== r.buy ? ` <span class="dimtxt">→ ${r.sell}</span>` : "" }</td>
+      <td>${esc(r.buy)}${ r.sell && r.sell !== r.buy ? ` <span class="dimtxt">→ ${esc(r.sell)}</span>` : "" }</td>
       <td class="num">${fmt(r.cost)}</td>
       <td class="num profit">+${fmt(r.profit)}</td>
       <td class="num">${r.margin}%</td>
@@ -470,6 +580,7 @@ async function loadDonate() {
 // а не дублируем show/hide в каждом обработчике.
 const VIEWS = {
   table: { view: "tableView", tab: "tabTable" },
+  flip:  { view: "flipView",  tab: "tabFlip" },
   plan:  { view: "planView",  tab: "tabPlan" },
   guide: { view: "guideView", tab: "tabGuide" },
 };
@@ -492,11 +603,58 @@ async function showView(name) {
     }
   }
   if (name === "plan") buildPlan();
+  if (name === "flip") await loadFlip();
 }
 
 document.getElementById("tabTable").addEventListener("click", () => showView("table"));
+document.getElementById("tabFlip").addEventListener("click", () => showView("flip"));
 document.getElementById("tabPlan").addEventListener("click", () => showView("plan"));
 document.getElementById("tabGuide").addEventListener("click", () => showView("guide"));
+
+// ——— флиппинг ———
+// Отдельная вкладка, не режим «сбыт»: тут меняется не куда продавать,
+// а откуда берётся товар — готовая вещь с рынка города, а не крафт.
+async function loadFlip() {
+  const budget = +document.getElementById("budget").value || 300000;
+  let mode;
+  try {
+    mode = await fetchMode("flip-0");
+  } catch (e) {
+    document.getElementById("flipRows").innerHTML =
+      '<tr><td colspan="11" class="empty">не удалось загрузить данные</td></tr>';
+    return;
+  }
+  const priced = applyBudget(mode.rows, budget).slice(0, 60);
+
+  const best = priced[0];
+  document.getElementById("flipCards").innerHTML = `
+    <div class="card"><div class="k">позиций по карману</div><div class="v">${priced.length}</div></div>
+    <div class="card"><div class="k">лучший рейс</div><div class="v good">${best ? "+" + fmt(best.batch_profit) : "—"}</div></div>`;
+
+  const tbody = document.getElementById("flipRows");
+  if (!priced.length) {
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">ничего не проходит фильтры — подними бюджет</td></tr>';
+    return;
+  }
+  tbody.innerHTML = priced.map(r => {
+    const supply = r.supply < 0 ? "н/д" : fmt(r.supply);
+    const flag = r.unknown ? '<span class="flag" title="история торгов по части месяца не подтверждена">?</span>' : "";
+    const cap = r.capped ? '<span class="flag" title="выставленный ордер был выше реальных сделок — цена прижата к средней за неделю">*</span>' : "";
+    return `<tr>
+      <td><span class="name">${esc(r.name)}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}</td>
+      <td>${esc(r.buy)}</td>
+      <td class="num">${fmt(r.cost)}</td>
+      <td class="num profit">+${fmt(r.profit)}</td>
+      <td class="num">${r.margin}%</td>
+      <td class="num">${fmt(r.demand)}</td>
+      <td class="num">${supply}${flag}</td>
+      <td class="num">${r.batch_qty}</td>
+      <td class="num">${fmt(r.batch_cost)}</td>
+      <td class="num profit">+${fmt(r.batch_profit)}</td>
+      <td><span class="tag ${r.mode}">${r.mode}</span>${cap}</td>
+    </tr>`;
+  }).join("");
+}
 
 // ——— план на бюджет ———
 // В отличие от таблицы (одна позиция на весь бюджет), план раскладывает бюджет
@@ -587,9 +745,9 @@ function renderPlan(plan, budget, remaining) {
   const tbody = document.getElementById("planRows");
   document.getElementById("planEmpty").hidden = plan.length > 0;
   tbody.innerHTML = plan.map(r => `<tr>
-      <td><span class="name">${r.name}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}</td>
+      <td><span class="name">${esc(r.name)}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}</td>
       <td><span class="tag ${r.method}">${r.method === "upgrade" ? "рунами" : "крафт"}</span></td>
-      <td>${r.buy}${r.sell && r.sell !== r.buy ? ` <span class="dimtxt">→ ${r.sell}</span>` : ""}</td>
+      <td>${esc(r.buy)}${r.sell && r.sell !== r.buy ? ` <span class="dimtxt">→ ${esc(r.sell)}</span>` : ""}</td>
       <td class="num">${r.qty}</td>
       <td class="num">${fmt(r.spend)}</td>
       <td class="num profit">+${fmt(r.gain)}</td>
@@ -605,6 +763,20 @@ document.getElementById("budget").addEventListener("input", () => {
 });
 document.getElementById("focus").addEventListener("change", load);
 document.getElementById("place").addEventListener("change", load);
+
+document.getElementById("search").addEventListener("input", (e) => {
+  currentSearch = e.target.value.trim();
+  clearTimeout(timer);
+  timer = setTimeout(load, 250);
+});
+document.getElementById("catTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".cat");
+  if (!btn) return;
+  currentCat = btn.dataset.cat;
+  document.querySelectorAll("#catTabs .cat").forEach(b => b.classList.toggle("active", b === btn));
+  load();
+});
+
 loadDonate();
 boot();
 // перечитываем файл раз в 10 минут — вдруг расписание успело обновить данные

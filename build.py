@@ -64,10 +64,22 @@ def ensure_dumps() -> None:
         print(f"рецептов: {len(built)}", flush=True)
 
 
-def row_json(r) -> dict:
+def classify(item_id: str, section: str) -> str:
+    """Категория для фильтра в интерфейсе: снаряжение / переработка / расходники."""
+    base = item_id.split("@")[0]
+    if base.endswith(engine.REFINED):
+        return "refine"
+    if section == "consumableitem":
+        return "consumable"
+    return "gear"
+
+
+def row_json(r, recs: dict) -> dict:
+    section = recs.get(r.item_id, {}).get("section", "")
     return {
         "id": r.item_id,
         "name": r.name,
+        "cat": classify(r.item_id, section),
         "tier": r.tier,
         "ench": r.enchant,
         "method": r.method,
@@ -115,8 +127,20 @@ def main() -> None:
             rows = engine.enrich_liquidity(rows, prices, cfg, budget=scope,
                                            limit=CANDIDATES, log=lambda m: None)
             rows.sort(key=lambda r: r.profit, reverse=True)
-            modes[key] = [row_json(r) for r in rows]
+            modes[key] = [row_json(r, recs) for r in rows]
             print(f"  -> {len(modes[key])}", flush=True)
+
+    # Флиппинг: купить готовую вещь дешёво в городе, продать на Чёрном рынке —
+    # без крафта вообще. Фокус тут ни при чём (нечего возвращать), поэтому
+    # считаем один раз и кладём под ключ "flip|0" для единообразия с остальными.
+    print("считаю flip|0...", flush=True)
+    flip_recs = engine.build_flip_recipes(recs)
+    flip_rows = engine.compute(cfg, flip_recs, prices, focus=False)
+    flip_rows = engine.enrich_liquidity(flip_rows, prices, cfg, budget=scope,
+                                        limit=CANDIDATES, log=lambda m: None)
+    flip_rows.sort(key=lambda r: r.profit, reverse=True)
+    modes["flip|0"] = [row_json(r, recs) for r in flip_rows]
+    print(f"  -> {len(modes['flip|0'])}", flush=True)
 
     names = material_names(modes)
     stamp = _stamp()

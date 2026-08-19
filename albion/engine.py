@@ -69,6 +69,37 @@ def collect_ids(recipes: dict) -> tuple[list, list]:
     return items, sorted(resources)
 
 
+def build_flip_recipes(recipes: dict) -> dict:
+    """Готовые вещи как флип: купить дешёво в городе, продать на Чёрном рынке.
+
+    Не крафт — item_id ставится единственным «материалом» самого рецепта,
+    без возврата. Это позволяет прогнать флиппинг через тот же craft.evaluate()
+    и получить бесплатно всю уже проверенную защиту: сверку цены продажи
+    со средними сделками и отсев «тонких» ордеров закупки — их для флипа
+    даже важнее, чем для крафта, потому что тут вся стоимость лежит в одной
+    позиции, а не размазана по нескольким материалам.
+
+    Сборные предметы вроде зачарованных материалов сюда не идут — флипуются
+    только сами рецепты верхнего уровня (recipes.keys()), ровно то, что видно
+    в таблице крафта.
+    """
+    out = {}
+    for item_id, rec in recipes.items():
+        out[item_id] = {
+            "id": item_id,
+            "name": rec["name"],
+            "tier": rec["tier"],
+            "enchant": rec["enchant"],
+            "variants": [{
+                "kind": "flip",
+                "silver": 0.0,
+                "focus": 0.0,
+                "resources": [{"id": item_id, "count": 1, "returnable": False}],
+            }],
+        }
+    return out
+
+
 def refresh_prices(cfg: dict, recipes: dict, prices: Prices, log=print) -> None:
     items, resources = collect_ids(recipes)
     log(f"цены ресурсов по городам ({len(resources)} шт)")
