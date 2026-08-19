@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
@@ -143,7 +144,7 @@ def build(dump_path: str | None = None, names_path: str | None = None) -> dict:
             base_variants = _parse_variants(item.get("craftingrequirements"))
             if base_variants:
                 recipes[base_id] = dict(
-                    meta, id=base_id, enchant=0, name=names.get(base_id, base_id),
+                    meta, id=base_id, enchant=0, name=names.get(base_id) or _humanize(base_id),
                     variants=base_variants,
                 )
 
@@ -162,10 +163,25 @@ def build(dump_path: str | None = None, names_path: str | None = None) -> dict:
                 ench_id = f"{base_id}@{level}"
                 recipes[ench_id] = dict(
                     meta, id=ench_id, enchant=level,
-                    name=names.get(base_id, base_id), variants=variants,
+                    name=names.get(base_id) or _humanize(base_id), variants=variants,
                 )
 
     return recipes
+
+
+def _humanize(item_id: str) -> str:
+    """Читаемая заглушка, когда для реального предмета нет перевода.
+
+    В базе локализации community-проекта есть пробелы: часть настоящих
+    вещей (редкие фракционные маунты, сезонные скины) просто не переведена,
+    хотя это не мусор — мусор (тестовые/прототипные/квестовые записи)
+    отсеивается ещё в engine._trusted() до того, как имя вообще понадобится.
+    Показывать игроку сырой код вроде T8_MOUNT_ARMORED_HORSE_MORGANA хуже,
+    чем английскую расшифровку "Mount Armored Horse Morgana".
+    """
+    base = re.sub(r"^T\d_", "", item_id.split("@")[0])
+    words = [w.capitalize() for w in base.split("_") if w]
+    return " ".join(words) or item_id
 
 
 def _load_names(path: str) -> dict[str, str]:

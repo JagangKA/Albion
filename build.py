@@ -75,11 +75,13 @@ def classify(item_id: str, section: str) -> str:
 
 
 def row_json(r, recs: dict) -> dict:
-    section = recs.get(r.item_id, {}).get("section", "")
+    rec = recs.get(r.item_id, {})
+    section = rec.get("section", "")
     return {
         "id": r.item_id,
         "name": r.name,
         "cat": classify(r.item_id, section),
+        "type": rec.get("craft_category", ""),
         "tier": r.tier,
         "ench": r.enchant,
         "method": r.method,
@@ -101,6 +103,44 @@ def row_json(r, recs: dict) -> dict:
             for m in r.recipe
         ],
     }
+
+
+def build_catalog(cfg: dict, recs: dict, prices) -> list:
+    """Каталог: цена любого предмета, без фильтра по прибыли.
+
+    В отличие от таблиц крафта/флиппинга, тут нет порога маржи — задача не
+    «что выгодно», а «сколько это вообще стоит». Переиспользует уже собранные
+    цены (refresh_prices() тянет их для всего того же набора recs), новых
+    сетевых запросов не требует.
+
+    Покрытие ограничено тем же диапазоном тиров/зачарований, что и у крафта
+    (T4–T8, .0–.2): расширять его значило бы качать больше цен, а мы хотим
+    остаться в рамках уже сделанного сбора.
+    """
+    max_age = cfg["filters"]["max_price_age_hours"]
+    out = []
+    for item_id, rec in recs.items():
+        best_city, best_price = "", None
+        for city in cfg["buy_cities"]:
+            quote = prices.buy_cost(item_id, city, max_age)
+            if quote and (best_price is None or quote[0] < best_price):
+                best_city, best_price = city, quote[0]
+
+        bm_instant = prices.sell_instant(item_id, cfg["sell_location"], max_age)
+        bm_order = prices.sell_order(item_id, cfg["sell_location"], max_age)
+        if best_price is None and not bm_instant and not bm_order:
+            continue  # нигде нет цены — включать в каталог нечего
+
+        out.append({
+            "id": item_id, "name": rec["name"], "tier": rec["tier"], "ench": rec["enchant"],
+            "type": rec.get("craft_category", ""),
+            "cat": classify(item_id, rec.get("section", "")),
+            "city": best_city, "city_price": round(best_price) if best_price else None,
+            "bm_instant": round(bm_instant[0]) if bm_instant else None,
+            "bm_order": round(bm_order[0]) if bm_order else None,
+        })
+    out.sort(key=lambda r: r["name"])
+    return out
 
 
 def main() -> None:
@@ -142,6 +182,12 @@ def main() -> None:
     modes["flip|0"] = [row_json(r, recs) for r in flip_rows]
     print(f"  -> {len(modes['flip|0'])}", flush=True)
 
+    # Каталог: цена любого предмета, не только прибыльного. Данные уже в кэше —
+    # новых запросов к API не требуется.
+    print("собираю каталог...", flush=True)
+    catalog = build_catalog(cfg, recs, prices)
+    print(f"  -> {len(catalog)}", flush=True)
+
     names = material_names(modes)
     stamp = _stamp()
     out_dir = os.path.dirname(OUT)
@@ -154,13 +200,14 @@ def main() -> None:
         "premium": cfg["taxes"].get("has_premium", False),
         "return_rate": cfg["return_rate"],
         "taxes": {k: v for k, v in cfg["taxes"].items() if not k.startswith("_")},
-        "counts": {k: len(v) for k, v in modes.items()},
+        "counts": {**{k: len(v) for k, v in modes.items()}, "catalog": len(catalog)},
         "names": names,
     }
     _write(os.path.join(out_dir, "index.json"), index)
     for key, rows in modes.items():
         _write(os.path.join(out_dir, f"mode-{key.replace('|', '-')}.json"),
                {"generated_at": stamp, "rows": rows})
+    _write(os.path.join(out_dir, "catalog.json"), {"generated_at": stamp, "rows": catalog})
 
     total = sum(os.path.getsize(os.path.join(out_dir, f)) for f in os.listdir(out_dir)
                 if f.endswith(".json") and f != "donate.json")

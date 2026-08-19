@@ -205,6 +205,7 @@
   <div class="tabs">
     <button id="tabTable" class="tab active">крафт</button>
     <button id="tabFlip" class="tab">флиппинг</button>
+    <button id="tabCatalog" class="tab">каталог</button>
     <button id="tabPlan" class="tab">план на бюджет</button>
     <button id="tabGuide" class="tab">гайд</button>
   </div>
@@ -290,6 +291,30 @@
   </table>
 </div>
 
+<div class="wrap" id="catalogView" hidden>
+  <p class="hint">
+    Цена любого предмета — без фильтра по прибыли. Для «что выгодно» смотри
+    вкладки «крафт» и «флиппинг»; здесь просто узнаёшь, сколько что стоит.
+    Покрытие — снаряжение, расходники и маунты T4–T8, зачарование .0–.2.
+  </p>
+  <div class="filter-row">
+    <input type="search" id="catalogSearch" placeholder="поиск по названию">
+  </div>
+  <div class="cards" id="catalogCards"></div>
+  <table>
+    <thead>
+      <tr>
+        <th title="Название предмета и уровень зачарования">предмет</th>
+        <th title="Самая дешёвая цена среди королевских городов">город</th>
+        <th title="Цена в этом городе">цена в городе</th>
+        <th title="Сколько даст Чёрный рынок сразу">ЧР instant</th>
+        <th title="Цена выставленного на Чёрном рынке ордера — не гарантирована">ЧР order</th>
+      </tr>
+    </thead>
+    <tbody id="catalogRows"></tbody>
+  </table>
+</div>
+
 <div class="wrap" id="tableView">
   <div class="filter-row">
     <input type="search" id="search" placeholder="поиск по названию, например «сапоги» или «эликсир»"
@@ -300,6 +325,15 @@
       <button class="cat" data-cat="refine">переработка</button>
       <button class="cat" data-cat="consumable">расходники</button>
     </div>
+    <select id="typeFilter" title="Тип предмета — оружие/броня по слоту, ресурсы по категории">
+      <option value="">любой тип</option>
+    </select>
+    <select id="sortBy" title="Чем ранжировать список">
+      <option value="profit">по прибыли за рейс</option>
+      <option value="margin">по марже</option>
+      <option value="cost">по себестоимости ↑</option>
+      <option value="cost_desc">по себестоимости ↓</option>
+    </select>
   </div>
   <div class="cards" id="cards"></div>
   <table>
@@ -385,6 +419,49 @@ let currentSearch = "";
 
 const CAT_LABELS = { all: "все", gear: "снаряжение", refine: "переработка", consumable: "расходники" };
 
+// Коды craft_category из игровых дампов — переводим для выпадающего списка.
+// Пустая строка — то, что не попало ни в одну явную категорию (городские
+// плащи, фракционные вещи, маунты); показываем как «прочее».
+const TYPE_LABELS = {
+  "": "прочее", sword: "мечи", axe: "топоры", mace: "булавы", hammer: "молоты",
+  dagger: "кинжалы", spear: "копья", quarterstaff: "боевые шесты",
+  knuckles: "перчатки бойца", bow: "луки", crossbow: "арбалеты",
+  firestaff: "огненные посохи", froststaff: "морозные посохи",
+  arcanestaff: "мистические посохи", holystaff: "священные посохи",
+  naturestaff: "природные посохи", cursestaff: "проклятые посохи",
+  offhand: "щиты и книги", gatherergear: "снаряжение сборщика",
+  plate_helmet: "латные шлемы", plate_armor: "латная броня", plate_shoes: "латная обувь",
+  leather_helmet: "кожаные шлемы", leather_armor: "кожаная броня", leather_shoes: "кожаная обувь",
+  cloth_helmet: "тканевые шлемы", cloth_armor: "тканевая броня", cloth_shoes: "тканевая обувь",
+  bag: "сумки", cape: "плащи", food: "еда", potion: "эликсиры", tools: "инструменты сбора",
+  wood: "древесина", rock: "камень", ore: "руда", hide: "шкуры", fiber: "волокно",
+};
+
+let currentType = "";
+let currentSort = "profit";
+
+function populateTypeFilter(rows) {
+  const sel = document.getElementById("typeFilter");
+  const present = new Set(rows.map(r => r.type ?? ""));
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">любой тип</option>' + [...present]
+    .sort((a, b) => (TYPE_LABELS[a] || a).localeCompare((TYPE_LABELS[b] || b), "ru"))
+    .map(t => `<option value="${esc(t)}">${esc(TYPE_LABELS[t] || t)}</option>`)
+    .join("");
+  if (present.has(prev)) sel.value = prev;   // сохраняем выбор при смене режима/бюджета
+}
+
+function sortRows(rows) {
+  const by = document.getElementById("sortBy").value;
+  const sorted = [...rows];
+  if (by === "margin") sorted.sort((a, b) => b.margin - a.margin);
+  else if (by === "cost") sorted.sort((a, b) => a.cost - b.cost);
+  else if (by === "cost_desc") sorted.sort((a, b) => b.cost - a.cost);
+  // "profit" (по умолчанию) — оставляем порядок applyBudget(), он уже ранжирует
+  // по прибыли за рейс, что честнее сортировки по прибыли со штуки.
+  return sorted;
+}
+
 function updateCatCounts(rows) {
   const counts = { all: rows.length, gear: 0, refine: 0, consumable: 0 };
   for (const r of rows) counts[r.cat] = (counts[r.cat] || 0) + 1;
@@ -408,6 +485,7 @@ function updateCatCounts(rows) {
 function filterRows(rows) {
   let out = rows;
   if (currentCat !== "all") out = out.filter(r => r.cat === currentCat);
+  if (currentType) out = out.filter(r => (r.type ?? "") === currentType);
   if (currentSearch) {
     const q = currentSearch.toLowerCase();
     out = out.filter(r => r.name.toLowerCase().includes(q));
@@ -455,8 +533,9 @@ async function load() {
   }
 
   updateCatCounts(mode.rows);
+  populateTypeFilter(mode.rows);
   const filtered = filterRows(mode.rows);
-  const priced = applyBudget(filtered, budget);
+  const priced = sortRows(applyBudget(filtered, budget));
   render({
     updated_at: INDEX.generated_at,
     status: "данные обновляются автоматически",
@@ -579,10 +658,11 @@ async function loadDonate() {
 // Три экрана делят один набор кнопок/контейнеров — переключаем через общую функцию,
 // а не дублируем show/hide в каждом обработчике.
 const VIEWS = {
-  table: { view: "tableView", tab: "tabTable" },
-  flip:  { view: "flipView",  tab: "tabFlip" },
-  plan:  { view: "planView",  tab: "tabPlan" },
-  guide: { view: "guideView", tab: "tabGuide" },
+  table:   { view: "tableView",   tab: "tabTable" },
+  flip:    { view: "flipView",    tab: "tabFlip" },
+  catalog: { view: "catalogView", tab: "tabCatalog" },
+  plan:    { view: "planView",    tab: "tabPlan" },
+  guide:   { view: "guideView",   tab: "tabGuide" },
 };
 let guideLoaded = false;
 
@@ -604,12 +684,65 @@ async function showView(name) {
   }
   if (name === "plan") buildPlan();
   if (name === "flip") await loadFlip();
+  if (name === "catalog") await loadCatalog();
 }
 
 document.getElementById("tabTable").addEventListener("click", () => showView("table"));
 document.getElementById("tabFlip").addEventListener("click", () => showView("flip"));
+document.getElementById("tabCatalog").addEventListener("click", () => showView("catalog"));
 document.getElementById("tabPlan").addEventListener("click", () => showView("plan"));
 document.getElementById("tabGuide").addEventListener("click", () => showView("guide"));
+
+// ——— каталог ———
+// Цена любого предмета без фильтра по прибыли: не "что выгодно",
+// а "сколько это стоит". Отдельный файл (не режим таблицы), потому что
+// тут нет ни себестоимости, ни партии — просто цены по городам и ЧР.
+let catalogData = null;
+
+async function loadCatalog() {
+  if (!catalogData) {
+    try {
+      catalogData = (await (await fetch("catalog.json?" + Date.now())).json()).rows;
+    } catch (e) {
+      document.getElementById("catalogRows").innerHTML =
+        '<tr><td colspan="5" class="empty">не удалось загрузить каталог</td></tr>';
+      return;
+    }
+  }
+  renderCatalog();
+}
+
+function renderCatalog() {
+  const q = document.getElementById("catalogSearch").value.trim().toLowerCase();
+  const filtered = q ? catalogData.filter(r => r.name.toLowerCase().includes(q)) : catalogData;
+  document.getElementById("catalogCards").innerHTML =
+    `<div class="card"><div class="k">в каталоге</div><div class="v">${catalogData.length}</div></div>
+     <div class="card"><div class="k">найдено</div><div class="v">${filtered.length}</div></div>`;
+
+  const tbody = document.getElementById("catalogRows");
+  const shown = filtered.slice(0, 100);
+  if (!shown.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty">${
+      q ? `по запросу «${esc(q)}» ничего не нашлось` : "каталог пуст"
+    }</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = shown.map(r => `<tr>
+      <td><span class="name">${esc(r.name)}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}</td>
+      <td>${esc(r.city)}</td>
+      <td class="num">${r.city_price !== null ? fmt(r.city_price) : "—"}</td>
+      <td class="num">${r.bm_instant !== null ? fmt(r.bm_instant) : "—"}</td>
+      <td class="num">${r.bm_order !== null ? fmt(r.bm_order) : "—"}</td>
+    </tr>`).join("");
+  if (filtered.length > 100) {
+    tbody.innerHTML += `<tr><td colspan="5" class="empty">и ещё ${filtered.length - 100} — уточни поиск</td></tr>`;
+  }
+}
+
+document.getElementById("catalogSearch").addEventListener("input", () => {
+  clearTimeout(timer);
+  timer = setTimeout(renderCatalog, 200);
+});
 
 // ——— флиппинг ———
 // Отдельная вкладка, не режим «сбыт»: тут меняется не куда продавать,
@@ -776,6 +909,11 @@ document.getElementById("catTabs").addEventListener("click", (e) => {
   document.querySelectorAll("#catTabs .cat").forEach(b => b.classList.toggle("active", b === btn));
   load();
 });
+document.getElementById("typeFilter").addEventListener("change", (e) => {
+  currentType = e.target.value;
+  load();
+});
+document.getElementById("sortBy").addEventListener("change", load);
 
 loadDonate();
 boot();
