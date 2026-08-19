@@ -391,7 +391,7 @@ async function showGuide() {
   if (!guideLoaded) {
     view.innerHTML = "<p style='color:var(--dim)'>загружаю…</p>";
     try {
-      view.innerHTML = await (await fetch("/guide")).text();
+      view.innerHTML = await (await fetch("guide.html")).text();
       guideLoaded = true;
     } catch (e) {
       view.innerHTML = "<p style='color:var(--bad)'>не удалось загрузить гайд</p>";
