@@ -1,0 +1,7 @@
+﻿data/items.json
+data/items_formatted.json
+data/prices_*.json
+data/recipes.json
+data/scan_result.json
+__pycache__/
+*.pyc

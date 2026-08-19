@@ -1,0 +1,49 @@
+name: обновление данных рынка
+
+on:
+  schedule:
+    # Раз в час. Чаще нет смысла: полный сбор цен упирается в лимиты API
+    # и сам по себе занимает больше десяти минут.
+    - cron: "17 * * * *"
+  workflow_dispatch:   # кнопка «запустить вручную» во вкладке Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Дампы игры весят под 40 МБ и меняются только с патчами — держим их
+      # в кэше, иначе каждый запуск качал бы их заново.
+      - name: кэш игровых дампов
+        uses: actions/cache@v4
+        with:
+          path: data/items*.json
+          key: ao-dumps-v1
+
+      - name: посчитать
+        run: python build.py
+
+      - name: опубликовать результат
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data.json
+          if git diff --staged --quiet; then
+            echo "данные не изменились"
+          else
+            git commit -m "данные рынка: $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi

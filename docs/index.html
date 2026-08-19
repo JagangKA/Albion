@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Albion — что крафтить</title>
+<style>
+  :root {
+    --bg: #14161c; --panel: #1c1f27; --line: #2b3038; --text: #e6e8ee;
+    --dim: #8d94a3; --accent: #d4a34a; --good: #5fbf7a; --warn: #d98b45; --bad: #cf6060;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  h1 span { color: var(--accent); }
+  .ctl { display: flex; align-items: center; gap: 7px; }
+  .ctl label { color: var(--dim); font-size: 13px; }
+  input[type=number], select {
+    padding: 6px 8px; background: #11131a; color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; font-size: 14px;
+  }
+  input[type=number] { width: 110px; }
+  button {
+    padding: 6px 14px; background: #262b35; color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: #303643; }
+  button.primary { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
+  .switch { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    padding: 6px 16px; background: transparent; border: 1px solid var(--line);
+    color: var(--dim);
+  }
+  .tab.active { background: #262b35; color: var(--text); border-color: #3a4150; }
+
+  .status { margin-left: auto; text-align: right; font-size: 12px; color: var(--dim); }
+  .status b { color: var(--text); font-weight: 600; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 5px; }
+  .dot.busy { background: var(--warn); animation: pulse 1s infinite; }
+  .dot.err { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .wrap { padding: 16px 20px 60px; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 16px; min-width: 150px;
+  }
+  .card .k { color: var(--dim); font-size: 12px; }
+  .card .v { font-size: 20px; font-weight: 600; margin-top: 2px; }
+  .card .v.good { color: var(--good); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+  th {
+    color: var(--dim); font-weight: 500; font-size: 12px; text-align: right;
+    position: sticky; top: 57px; background: var(--bg); cursor: help;
+  }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  tbody tr:hover { background: #1a1d25; }
+  .name { font-weight: 600; }
+  .ench { color: var(--accent); font-size: 12px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .profit { color: var(--good); font-weight: 600; }
+  .tag {
+    display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px;
+    background: #262b35; color: var(--dim);
+  }
+  .tag.order { background: #3a2f1c; color: var(--warn); }
+  .tag.upgrade { background: #2a2438; color: #a98fd4; }
+  .dimtxt { color: var(--dim); font-size: 12px; }
+  .flag { color: var(--warn); cursor: help; }
+  .old { color: var(--warn); }
+  .empty { padding: 40px; text-align: center; color: var(--dim); }
+  .note {
+    margin-top: 18px; padding: 12px 16px; background: var(--panel);
+    border: 1px solid var(--line); border-left: 3px solid var(--warn);
+    border-radius: 6px; color: var(--dim); font-size: 13px;
+  }
+  .note b { color: var(--text); }
+  /* ——— поддержка ——— */
+  .donate {
+    margin-top: 22px; padding: 14px 18px; background: var(--panel);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 6px; font-size: 13px; color: #c8cdd8;
+  }
+  .donate h3 { margin: 0 0 8px; font-size: 14px; color: var(--text); font-weight: 600; }
+  .donate a { color: var(--accent); }
+  .donate .addr {
+    display: inline-block; margin: 3px 0; padding: 3px 8px; background: #11131a;
+    border: 1px solid var(--line); border-radius: 4px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    color: var(--text); cursor: pointer; word-break: break-all;
+  }
+  .donate .addr:hover { border-color: var(--accent); }
+  .donate .row { margin: 6px 0; }
+  .donate .lbl { color: var(--dim); margin-right: 6px; }
+
+  .foot {
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
+    color: var(--dim); font-size: 12px; line-height: 1.6;
+  }
+  .foot a { color: var(--dim); }
+  .foot a:hover { color: var(--accent); }
+
+  /* ——— гайд ——— */
+  .guide { max-width: 820px; }
+  .guide .lead { font-size: 15px; color: var(--text); margin: 0 0 26px; }
+  .guide h2 {
+    font-size: 17px; margin: 34px 0 12px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--line); color: var(--accent); font-weight: 600;
+  }
+  .guide h3 { font-size: 14px; margin: 22px 0 8px; color: var(--text); }
+  .guide p { margin: 10px 0; color: #c8cdd8; }
+  .guide ul, .guide ol { margin: 10px 0; padding-left: 22px; color: #c8cdd8; }
+  .guide li { margin: 7px 0; }
+  .guide b { color: var(--text); }
+  .guide code {
+    background: #11131a; border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 6px; font-size: 13px; color: var(--accent);
+  }
+  .guide p.warn { color: var(--warn); }
+  .callout {
+    margin: 18px 0; padding: 13px 16px; background: var(--panel);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 6px; color: #c8cdd8;
+  }
+  .callout.warn-box { border-left-color: var(--warn); }
+  table.cols { margin: 12px 0; }
+  table.cols td { text-align: left; vertical-align: top; color: #c8cdd8; }
+  table.cols td:first-child { width: 190px; color: var(--text); white-space: nowrap; }
+  table.cols td.bad { color: var(--bad); }
+
+  details.recipe { margin-top: 6px; }
+  details.recipe summary { cursor: pointer; color: var(--dim); font-size: 12px; }
+  details.recipe div { margin-top: 5px; color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Albion <span>—</span> что крафтить</h1>
+
+  <div class="ctl">
+    <label for="budget">бюджет</label>
+    <input type="number" id="budget" value="300000" step="50000" min="10000">
+  </div>
+
+  <div class="ctl">
+    <label for="place">сбыт</label>
+    <select id="place">
+      <option value="bm">Чёрный рынок (Кэрлеон)</option>
+      <option value="local">на месте, без поездок</option>
+    </select>
+  </div>
+
+  <label class="switch">
+    <input type="checkbox" id="focus"> <span>фокус-очки</span>
+  </label>
+
+
+  <div class="tabs">
+    <button id="tabTable" class="tab active">таблица</button>
+    <button id="tabGuide" class="tab">гайд</button>
+  </div>
+
+  <div class="status">
+    <div><span class="dot" id="dot"></span><span id="statusText">загрузка…</span></div>
+    <div>данные от: <b id="updated">—</b></div>
+  </div>
+</header>
+
+<div class="wrap" id="guideView" hidden></div>
+
+<div class="wrap" id="tableView">
+  <div class="cards" id="cards"></div>
+  <table>
+    <thead>
+      <tr>
+        <th title="Название предмета и уровень зачарования">предмет</th>
+        <th title="Как получается вещь: собрать из материалов или поднять готовую рунами">способ</th>
+        <th title="Где закупать материалы (в режиме «на месте» там же и продаёшь)">город</th>
+        <th title="Себестоимость одной штуки: материалы минус возврат, плюс невозвращаемые артефакты и сбор станции">себест.</th>
+        <th title="Чистая прибыль с одной штуки после налога">приб./шт</th>
+        <th title="Прибыль к себестоимости">маржа</th>
+        <th title="Сколько штук в день реально скупает Чёрный рынок">спрос</th>
+        <th title="На сколько штук в день хватает материалов в городе закупки">матер.</th>
+        <th title="Сколько штук имеет смысл сделать при твоём бюджете">партия</th>
+        <th title="Сколько серебра вложить в партию">вложить</th>
+        <th title="Сколько снять с партии чистыми">снять</th>
+        <th title="Сколько фокуса съест партия. Фокуса копится порядка 10 000 в сутки, поэтому большие партии в фокусе не сделать">фокус</th>
+        <th title="instant — продажа сразу в ордер Чёрного рынка; order — надо выставить и ждать">режим</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="donate" id="donate" hidden></div>
+
+  <div class="foot">
+    Фанатский проект. Не связан с Sandbox Interactive GmbH и не поддерживается
+    разработчиками игры. Цены берутся из открытого
+    <a href="https://www.albion-online-data.com/" target="_blank" rel="noopener noreferrer">Albion Online Data Project</a>,
+    их собирают сами игроки — данные бывают неполными и устаревшими.
+    <span id="repoLink"></span>
+  </div>
+
+  <div class="note">
+    <b>Проверяй перед закупкой.</b> Цены собирают сами игроки, и датасет не показывает,
+    сколько штук лежит в ордере — цена может стоять на одну единицу.
+    Колонки «спрос» и «матер.» оценены по истории торгов, знак <span class="flag">?</span>
+    значит, что по части материалов данных нет. Режим <span class="tag order">order</span>
+    — продажа не мгновенная. И помни: скупая большие объёмы, ты сам двигаешь цену вверх.
+  </div>
+</div>
+
+<script>
+const fmt = n => (n === null || n === undefined) ? "—" : Math.round(n).toLocaleString("ru-RU");
+let timer = null;
+
+let DATA = null;
+
+async function boot() {
+  try {
+    const resp = await fetch("data.json?" + Date.now());
+    DATA = await resp.json();
+  } catch (e) {
+    document.getElementById("statusText").textContent = "не удалось загрузить данные";
+    document.getElementById("dot").className = "dot err";
+    return;
+  }
+  load();
+}
+
+// Бюджет применяется здесь, в браузере: он только отбирает готовые строки
+// и считает размер партии, поэтому пересчитывать ничего не нужно.
+function applyBudget(rows, budget) {
+  const out = [];
+  for (const r of rows) {
+    if (!r.cost || r.cost > budget) continue;
+    const affordable = Math.floor(budget / r.cost);
+    const cap = r.cap > 0 ? r.cap : r.demand;
+    const qty = Math.max(1, Math.min(affordable, cap > 0 ? Math.floor(cap) : affordable));
+    out.push(Object.assign({}, r, {
+      batch_qty: qty,
+      batch_cost: Math.round(r.cost * qty),
+      batch_profit: Math.round(r.profit * qty),
+      batch_focus: Math.round(r.focus * qty),
+    }));
+  }
+  out.sort((a, b) => b.batch_profit - a.batch_profit);
+  return out;
+}
+
+function load() {
+  if (!DATA) return;
+  const budget = +document.getElementById("budget").value || 300000;
+  const focus = document.getElementById("focus").checked ? 1 : 0;
+  const place = document.getElementById("place").value;
+  const rows = DATA.modes[place + "|" + focus] || [];
+  const priced = applyBudget(rows, budget);
+  render({
+    updated_at: DATA.generated_at,
+    status: "данные обновляются автоматически",
+    busy: false,
+    error: null,
+    budget: budget,
+    place: place,
+    server: DATA.server,
+    premium: DATA.premium,
+    total: priced.length,
+    rows: priced.slice(0, 40),
+  });
+}
+
+function render(d) {
+  const dot = document.getElementById("dot");
+  dot.className = "dot" + (d.error ? " err" : d.busy ? " busy" : "");
+  document.getElementById("statusText").textContent =
+    d.error ? ("ошибка: " + d.error) : d.status;
+  document.getElementById("updated").textContent = d.updated_at || "—";
+
+  const best = d.rows[0];
+  document.getElementById("cards").innerHTML = `
+    <div class="card"><div class="k">сервер</div><div class="v">${d.server}${d.premium ? " · премиум" : ""}</div></div>
+    <div class="card"><div class="k">бюджет</div><div class="v">${fmt(d.budget)}</div></div>
+    <div class="card"><div class="k">сбыт</div><div class="v">${d.place === "local" ? "на месте" : "Чёрный рынок"}</div></div>
+    <div class="card"><div class="k">позиций по карману</div><div class="v">${d.total}</div></div>
+    <div class="card"><div class="k">лучший рейс</div><div class="v good">${best ? "+" + fmt(best.batch_profit) : "—"}</div></div>`;
+
+  const tbody = document.getElementById("rows");
+  if (!d.rows.length) {
+    tbody.innerHTML = `<tr><td colspan="13" class="empty">${
+      d.busy ? "считаю, подожди минуту…" : "ничего не проходит фильтры — подними бюджет или ослабь пороги в config.json"
+    }</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = d.rows.map(r => {
+    const mats = r.supply < 0 ? "н/д" : fmt(r.supply);
+    const flag = r.unknown ? '<span class="flag" title="по части материалов нет истории торгов — проверь объём в игре">?</span>' : "";
+    const age = r.age > 6 ? `<span class="old" title="цена собрана ${r.age} ч назад">${r.age}ч</span>` : "";
+    const recipe = r.recipe.map(m =>
+      `${(DATA.names && DATA.names[m.id]) || m.id} x${m.n} по ${fmt(m.p)}${m.ret ? "" : " (без возврата)"}`
+    ).join("<br>");
+    return `<tr>
+      <td>
+        <span class="name">${r.name}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}
+        <details class="recipe"><summary>состав ${age}</summary><div>${recipe}</div></details>
+      </td>
+      <td><span class="tag ${r.method}">${r.method === "upgrade" ? "рунами" : "крафт"}</span></td>
+      <td>${r.buy}${ r.sell && r.sell !== r.buy ? ` <span class="dimtxt">→ ${r.sell}</span>` : "" }</td>
+      <td class="num">${fmt(r.cost)}</td>
+      <td class="num profit">+${fmt(r.profit)}</td>
+      <td class="num">${r.margin}%</td>
+      <td class="num">${fmt(r.demand)}</td>
+      <td class="num">${mats}${flag}</td>
+      <td class="num">${r.batch_qty}</td>
+      <td class="num">${fmt(r.batch_cost)}</td>
+      <td class="num profit">+${fmt(r.batch_profit)}</td>
+      <td class="num ${r.batch_focus > 10000 ? "old" : ""}" ${
+        r.batch_focus > 10000 ? 'title="партия съест больше суточного запаса фокуса — раздели её на несколько дней или считай без фокуса"' : ""
+      }>${r.batch_focus ? fmt(r.batch_focus) : "—"}</td>
+      <td><span class="tag ${r.mode}">${r.mode}</span>${
+        r.capped ? '<span class="flag" title="выставленный ордер был выше реальных сделок — цена прижата к средней за неделю">*</span>' : ""
+      }</td>
+    </tr>`;
+  }).join("");
+}
+
+// ——— поддержка проекта ———
+// Реквизиты лежат отдельным файлом, чтобы менять их без пересборки сайта.
+// Пустые поля не показываются вовсе — пустых ссылок на странице не будет.
+async function loadDonate() {
+  let d;
+  try {
+    d = await (await fetch("donate.json?" + Date.now())).json();
+  } catch (e) { return; }
+
+  const parts = [];
+  if (d.boosty) {
+    const url = d.boosty.startsWith("http") ? d.boosty : "https://" + d.boosty;
+    parts.push(`<div class="row"><span class="lbl">Boosty:</span>
+      <a href="${url}" target="_blank" rel="noopener noreferrer">${url.replace(/^https?:\/\//, "")}</a></div>`);
+  }
+  for (const [label, addr] of Object.entries(d.crypto || {})) {
+    if (!addr) continue;
+    parts.push(`<div class="row"><span class="lbl">${label}:</span>
+      <span class="addr" data-copy="${addr}" title="нажми, чтобы скопировать">${addr}</span></div>`);
+  }
+  if (d.repo) {
+    const r = d.repo.startsWith("http") ? d.repo : "https://" + d.repo;
+    document.getElementById("repoLink").innerHTML =
+      ` <a href="${r}" target="_blank" rel="noopener noreferrer">Исходный код</a> ·
+        <a href="${r.replace(/\/$/, "")}/issues" target="_blank" rel="noopener noreferrer">сообщить об ошибке</a>`;
+  }
+
+  if (!parts.length) return;
+
+  const box = document.getElementById("donate");
+  box.innerHTML = `<h3>Поддержать проект</h3>
+    <p style="margin:0 0 8px">Сайт бесплатный и без рекламы. Если он сэкономил тебе время — можно поблагодарить.</p>
+    ${parts.join("")}
+    ${d.note ? `<p style="margin:8px 0 0;color:var(--dim)">${d.note}</p>` : ""}`;
+  box.hidden = false;
+
+  box.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-copy]");
+    if (!el) return;
+    navigator.clipboard.writeText(el.dataset.copy).then(() => {
+      const was = el.textContent;
+      el.textContent = "скопировано";
+      setTimeout(() => { el.textContent = was; }, 1200);
+    }).catch(() => {});
+  });
+}
+
+// ——— вкладки ———
+let guideLoaded = false;
+
+async function showGuide() {
+  const view = document.getElementById("guideView");
+  if (!guideLoaded) {
+    view.innerHTML = "<p style='color:var(--dim)'>загружаю…</p>";
+    try {
+      view.innerHTML = await (await fetch("/guide")).text();
+      guideLoaded = true;
+    } catch (e) {
+      view.innerHTML = "<p style='color:var(--bad)'>не удалось загрузить гайд</p>";
+    }
+  }
+  view.hidden = false;
+  document.getElementById("tableView").hidden = true;
+  document.getElementById("tabGuide").classList.add("active");
+  document.getElementById("tabTable").classList.remove("active");
+}
+
+function showTable() {
+  document.getElementById("guideView").hidden = true;
+  document.getElementById("tableView").hidden = false;
+  document.getElementById("tabTable").classList.add("active");
+  document.getElementById("tabGuide").classList.remove("active");
+}
+
+document.getElementById("tabGuide").addEventListener("click", showGuide);
+document.getElementById("tabTable").addEventListener("click", showTable);
+
+document.getElementById("budget").addEventListener("input", () => {
+  clearTimeout(timer);
+  timer = setTimeout(load, 350);
+});
+document.getElementById("focus").addEventListener("change", load);
+document.getElementById("place").addEventListener("change", load);
+loadDonate();
+boot();
+// перечитываем файл раз в 10 минут — вдруг расписание успело обновить данные
+setInterval(boot, 600000);
+</script>
+</body>
+</html>
