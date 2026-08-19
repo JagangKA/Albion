@@ -28,9 +28,17 @@ DUMPS = {
     "items_formatted.json": "https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.json",
 }
 
-# Сколько строк отдавать в каждом сочетании. Больше не нужно: при любом бюджете
-# посетитель смотрит верхушку, а вес файла качают все.
-TOP = 300
+# Публичная сборка отдаёт ПОЛНОЕ покрытие: у платных аналогов широкий каталог —
+# как раз то, что прячут за подпиской. Пороги здесь заметно мягче локальных,
+# а решение «показывать ли неприбыльное» принимает уже посетитель фильтрами.
+PUBLIC_FILTERS = {
+    "min_profit_silver": 50,
+    "min_margin_pct": 3,
+    "min_sold_per_day": 3,
+}
+# Сколько позиций проверять на объёмы. Это сетевые запросы, но история торгов
+# кэшируется между режимами, поэтому цена охвата почти вся платится один раз.
+CANDIDATES = 2000
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -96,6 +104,8 @@ def main() -> None:
     # кошельками, а пересчитать под каждый мы уже не сможем.
     scope = 20_000_000.0
 
+    cfg["filters"].update(PUBLIC_FILTERS)
+
     modes: dict[str, list] = {}
     for place, sell_at in (("bm", None), ("local", "same")):
         for focus in (False, True):
@@ -103,27 +113,40 @@ def main() -> None:
             print(f"считаю {key}...", flush=True)
             rows = engine.compute(cfg, recs, prices, focus, sell_at=sell_at)
             rows = engine.enrich_liquidity(rows, prices, cfg, budget=scope,
-                                           log=lambda m: None)
+                                           limit=CANDIDATES, log=lambda m: None)
             rows.sort(key=lambda r: r.profit, reverse=True)
-            modes[key] = [row_json(r) for r in rows[:TOP]]
+            modes[key] = [row_json(r) for r in rows]
             print(f"  -> {len(modes[key])}", flush=True)
 
     names = material_names(modes)
-    payload = {
-        "generated_at": engine.craft.__dict__.get("_now", None) or _stamp(),
+    stamp = _stamp()
+    out_dir = os.path.dirname(OUT)
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Общая часть — маленькая, грузится сразу; таблицы — по требованию.
+    index = {
+        "generated_at": stamp,
         "server": cfg["server"],
         "premium": cfg["taxes"].get("has_premium", False),
         "return_rate": cfg["return_rate"],
         "taxes": {k: v for k, v in cfg["taxes"].items() if not k.startswith("_")},
-        "modes": modes,
+        "counts": {k: len(v) for k, v in modes.items()},
         "names": names,
     }
+    _write(os.path.join(out_dir, "index.json"), index)
+    for key, rows in modes.items():
+        _write(os.path.join(out_dir, f"mode-{key.replace('|', '-')}.json"),
+               {"generated_at": stamp, "rows": rows})
 
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as fh:
+    total = sum(os.path.getsize(os.path.join(out_dir, f)) for f in os.listdir(out_dir)
+                if f.endswith(".json") and f != "donate.json")
+    print(f"записано в {out_dir}: {total / 1024:.0f} КБ суммарно")
+
+
+def _write(path: str, payload: dict) -> None:
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
-    size = os.path.getsize(OUT) / 1024
-    print(f"записано {OUT} ({size:.0f} КБ)")
+    print(f"  {os.path.basename(path)}: {os.path.getsize(path) / 1024:.0f} КБ")
 
 
 def material_names(modes: dict) -> dict:

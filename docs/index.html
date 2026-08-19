@@ -87,6 +87,16 @@
     border-radius: 6px; color: var(--dim); font-size: 13px;
   }
   .note b { color: var(--text); }
+  /* ——— план на бюджет ——— */
+  .plan-form {
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
+    padding: 14px 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; margin-bottom: 16px;
+  }
+  .plan-form .ctl { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .plan-form select { min-width: 220px; }
+  #planEmpty { border-left-color: var(--warn); }
+
   /* ——— поддержка ——— */
   .donate {
     margin-top: 22px; padding: 14px 18px; background: var(--panel);
@@ -170,6 +180,7 @@
 
   <div class="tabs">
     <button id="tabTable" class="tab active">таблица</button>
+    <button id="tabPlan" class="tab">план на бюджет</button>
     <button id="tabGuide" class="tab">гайд</button>
   </div>
 
@@ -180,6 +191,51 @@
 </header>
 
 <div class="wrap" id="guideView" hidden></div>
+
+<div class="wrap" id="planView" hidden>
+  <div class="plan-form">
+    <div class="ctl">
+      <label for="planDays">дней на продажу</label>
+      <input type="number" id="planDays" value="3" min="1" max="14">
+    </div>
+    <div class="ctl">
+      <label for="planShare" title="какую долю дневного спроса/поставки разрешаем занять одной партией — чтобы не пытаться скупить рынок целиком">доля рынка, %</label>
+      <input type="number" id="planShare" value="25" min="1" max="100">
+    </div>
+    <div class="ctl">
+      <label for="planMax">разных позиций</label>
+      <input type="number" id="planMax" value="6" min="1" max="20">
+    </div>
+    <div class="ctl">
+      <label for="planAlgo">стратегия</label>
+      <select id="planAlgo">
+        <option value="balanced" selected>сбалансированная</option>
+        <option value="expensive">дорогое — меньше партий, выше прибыль со штуки</option>
+        <option value="bulk">вал — больше оборота, ниже маржа</option>
+      </select>
+    </div>
+    <button id="planBuild" class="primary">составить план</button>
+  </div>
+  <div class="cards" id="planCards"></div>
+  <table>
+    <thead>
+      <tr>
+        <th title="Название предмета и уровень зачарования">предмет</th>
+        <th title="Как получается вещь">способ</th>
+        <th title="Где закупать / продавать">город</th>
+        <th title="Сколько штук войдёт в план">партия</th>
+        <th title="Сколько серебра уйдёт на эту позицию">вложить</th>
+        <th title="Сколько снимешь чистыми с этой позиции">снять</th>
+        <th title="instant — продажа сразу; order — выставить и ждать">режим</th>
+      </tr>
+    </thead>
+    <tbody id="planRows"></tbody>
+  </table>
+  <div class="note" id="planEmpty" hidden>
+    Пустой бюджет под текущие фильтры. Подними бюджет, увеличь «дней на продажу»
+    или долю рынка — план соберётся из более широкого набора позиций.
+  </div>
+</div>
 
 <div class="wrap" id="tableView">
   <div class="cards" id="cards"></div>
@@ -226,18 +282,30 @@
 const fmt = n => (n === null || n === undefined) ? "—" : Math.round(n).toLocaleString("ru-RU");
 let timer = null;
 
-let DATA = null;
+// Данные разбиты по файлам: index.json — общая часть (имена, счётчики),
+// mode-<сбыт>-<фокус>.json — сама таблица. Так посетитель качает только
+// тот режим, который смотрит, а не весь охват сразу.
+let INDEX = null;
+const modeCache = {};   // "bm-0" -> {rows: [...]}
+let loading = false;
 
 async function boot() {
   try {
-    const resp = await fetch("data.json?" + Date.now());
-    DATA = await resp.json();
+    INDEX = await (await fetch("index.json?" + Date.now())).json();
   } catch (e) {
     document.getElementById("statusText").textContent = "не удалось загрузить данные";
     document.getElementById("dot").className = "dot err";
     return;
   }
   load();
+}
+
+async function fetchMode(key) {
+  if (modeCache[key]) return modeCache[key];
+  const resp = await fetch(`mode-${key}.json?` + Math.floor(Date.now() / 60000));
+  const data = await resp.json();
+  modeCache[key] = data;
+  return data;
 }
 
 // Бюджет применяется здесь, в браузере: он только отбирает готовые строки
@@ -260,25 +328,39 @@ function applyBudget(rows, budget) {
   return out;
 }
 
-function load() {
-  if (!DATA) return;
+async function load() {
+  if (!INDEX || loading) return;
+  loading = true;
   const budget = +document.getElementById("budget").value || 300000;
   const focus = document.getElementById("focus").checked ? 1 : 0;
   const place = document.getElementById("place").value;
-  const rows = DATA.modes[place + "|" + focus] || [];
-  const priced = applyBudget(rows, budget);
+  const key = `${place}-${focus}`;
+
+  document.getElementById("statusText").textContent = "загружаю таблицу...";
+  let mode;
+  try {
+    mode = await fetchMode(key);
+  } catch (e) {
+    document.getElementById("statusText").textContent = "не удалось загрузить таблицу";
+    document.getElementById("dot").className = "dot err";
+    loading = false;
+    return;
+  }
+
+  const priced = applyBudget(mode.rows, budget);
   render({
-    updated_at: DATA.generated_at,
+    updated_at: INDEX.generated_at,
     status: "данные обновляются автоматически",
     busy: false,
     error: null,
     budget: budget,
     place: place,
-    server: DATA.server,
-    premium: DATA.premium,
+    server: INDEX.server,
+    premium: INDEX.premium,
     total: priced.length,
-    rows: priced.slice(0, 40),
+    rows: priced.slice(0, 60),
   });
+  loading = false;
 }
 
 function render(d) {
@@ -309,7 +391,7 @@ function render(d) {
     const flag = r.unknown ? '<span class="flag" title="по части материалов нет истории торгов — проверь объём в игре">?</span>' : "";
     const age = r.age > 6 ? `<span class="old" title="цена собрана ${r.age} ч назад">${r.age}ч</span>` : "";
     const recipe = r.recipe.map(m =>
-      `${(DATA.names && DATA.names[m.id]) || m.id} x${m.n} по ${fmt(m.p)}${m.ret ? "" : " (без возврата)"}`
+      `${(INDEX.names && INDEX.names[m.id]) || m.id} x${m.n} по ${fmt(m.p)}${m.ret ? "" : " (без возврата)"}`
     ).join("<br>");
     return `<tr>
       <td>
@@ -384,11 +466,23 @@ async function loadDonate() {
 }
 
 // ——— вкладки ———
+// Три экрана делят один набор кнопок/контейнеров — переключаем через общую функцию,
+// а не дублируем show/hide в каждом обработчике.
+const VIEWS = {
+  table: { view: "tableView", tab: "tabTable" },
+  plan:  { view: "planView",  tab: "tabPlan" },
+  guide: { view: "guideView", tab: "tabGuide" },
+};
 let guideLoaded = false;
 
-async function showGuide() {
-  const view = document.getElementById("guideView");
-  if (!guideLoaded) {
+async function showView(name) {
+  for (const key of Object.keys(VIEWS)) {
+    const v = VIEWS[key];
+    document.getElementById(v.view).hidden = key !== name;
+    document.getElementById(v.tab).classList.toggle("active", key === name);
+  }
+  if (name === "guide" && !guideLoaded) {
+    const view = document.getElementById("guideView");
     view.innerHTML = "<p style='color:var(--dim)'>загружаю…</p>";
     try {
       view.innerHTML = await (await fetch("guide.html")).text();
@@ -397,21 +491,113 @@ async function showGuide() {
       view.innerHTML = "<p style='color:var(--bad)'>не удалось загрузить гайд</p>";
     }
   }
-  view.hidden = false;
-  document.getElementById("tableView").hidden = true;
-  document.getElementById("tabGuide").classList.add("active");
-  document.getElementById("tabTable").classList.remove("active");
+  if (name === "plan") buildPlan();
 }
 
-function showTable() {
-  document.getElementById("guideView").hidden = true;
-  document.getElementById("tableView").hidden = false;
-  document.getElementById("tabTable").classList.add("active");
-  document.getElementById("tabGuide").classList.remove("active");
+document.getElementById("tabTable").addEventListener("click", () => showView("table"));
+document.getElementById("tabPlan").addEventListener("click", () => showView("plan"));
+document.getElementById("tabGuide").addEventListener("click", () => showView("guide"));
+
+// ——— план на бюджет ———
+// В отличие от таблицы (одна позиция на весь бюджет), план раскладывает бюджет
+// сразу по нескольким позициям — ближе к тому, как реально закупаться за рейс.
+// Работает целиком на уже загруженных данных таблицы, без обращений к серверу.
+
+function scoreFor(row, algo) {
+  if (algo === "expensive") return row.profit;                 // прибыль со штуки
+  if (algo === "bulk") return row.demand || 0;                 // берём то, что льётся потоком
+  return row.profit * Math.sqrt(Math.max(row.demand || 1, 1)); // баланс маржи и оборота
 }
 
-document.getElementById("tabGuide").addEventListener("click", showGuide);
-document.getElementById("tabTable").addEventListener("click", showTable);
+function buildPlan() {
+  const budget = +document.getElementById("budget").value || 300000;
+  const focus = document.getElementById("focus").checked ? 1 : 0;
+  const place = document.getElementById("place").value;
+  const days = Math.max(1, +document.getElementById("planDays").value || 3);
+  const sharePct = Math.min(100, Math.max(1, +document.getElementById("planShare").value || 25));
+  const maxItems = Math.max(1, +document.getElementById("planMax").value || 6);
+  const algo = document.getElementById("planAlgo").value;
+
+  fetchMode(`${place}-${focus}`).then(mode => {
+    const candidates = mode.rows
+      .filter(r => r.cost > 0 && r.cost <= budget)
+      .map(r => {
+        // предел по рынку: сколько дневной ёмкости разрешаем занять
+        const dailyCap = r.cap > 0 ? r.cap : r.demand;
+        const marketLimit = Math.floor(dailyCap * days * (sharePct / 100));
+        return Object.assign({}, r, {
+          marketLimit: Math.max(marketLimit, 0),
+          score: scoreFor(r, algo),
+        });
+      })
+      .filter(r => r.marketLimit >= 1)
+      .sort((a, b) => b.score - a.score);
+
+    const plan = [];
+    const used = new Set();
+    let remaining = budget;
+    let slotsLeft = maxItems;
+
+    // Якорь: лучшая по выбранной стратегии позиция получает шанс занять до
+    // половины бюджета отдельно от общего деления. Без этого шага дорогую,
+    // но самую выгодную вещь может целиком исключить из плана только потому,
+    // что при равном делении на все слоты на неё не хватает доли.
+    if (candidates.length) {
+      const top = candidates[0];
+      const cap = Math.min(remaining, budget * 0.5);
+      const qty = Math.min(Math.floor(cap / top.cost), top.marketLimit);
+      if (qty >= 1) {
+        const spend = Math.round(top.cost * qty);
+        plan.push(Object.assign({}, top, { qty, spend, gain: Math.round(top.profit * qty) }));
+        used.add(top.id);
+        remaining -= spend;
+        slotsLeft -= 1;
+      }
+    }
+
+    // Водоналив: остаток бюджета делится поровну между оставшимися слотами.
+    // Позиция не выбрала свою долю целиком (уткнулась в ёмкость рынка) —
+    // остаток утекает следующим позициям, а не пропадает зря.
+    for (const r of candidates) {
+      if (used.has(r.id) || plan.length >= maxItems || slotsLeft <= 0) continue;
+      const share = remaining / slotsLeft;
+      const qty = Math.min(Math.floor(share / r.cost), r.marketLimit);
+      if (qty < 1) continue;
+      const spend = Math.round(r.cost * qty);
+      plan.push(Object.assign({}, r, { qty, spend, gain: Math.round(r.profit * qty) }));
+      used.add(r.id);
+      remaining -= spend;
+      slotsLeft -= 1;
+    }
+
+    renderPlan(plan, budget, remaining);
+  });
+}
+
+function renderPlan(plan, budget, remaining) {
+  const totalSpend = budget - remaining;
+  const totalGain = plan.reduce((s, r) => s + r.gain, 0);
+
+  document.getElementById("planCards").innerHTML = `
+    <div class="card"><div class="k">позиций в плане</div><div class="v">${plan.length}</div></div>
+    <div class="card"><div class="k">использовано бюджета</div><div class="v">${fmt(totalSpend)} / ${fmt(budget)}</div></div>
+    <div class="card"><div class="k">свободный остаток</div><div class="v">${fmt(remaining)}</div></div>
+    <div class="card"><div class="k">итог за рейс</div><div class="v good">+${fmt(totalGain)}</div></div>`;
+
+  const tbody = document.getElementById("planRows");
+  document.getElementById("planEmpty").hidden = plan.length > 0;
+  tbody.innerHTML = plan.map(r => `<tr>
+      <td><span class="name">${r.name}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}</td>
+      <td><span class="tag ${r.method}">${r.method === "upgrade" ? "рунами" : "крафт"}</span></td>
+      <td>${r.buy}${r.sell && r.sell !== r.buy ? ` <span class="dimtxt">→ ${r.sell}</span>` : ""}</td>
+      <td class="num">${r.qty}</td>
+      <td class="num">${fmt(r.spend)}</td>
+      <td class="num profit">+${fmt(r.gain)}</td>
+      <td><span class="tag ${r.mode}">${r.mode}</span></td>
+    </tr>`).join("");
+}
+
+document.getElementById("planBuild").addEventListener("click", buildPlan);
 
 document.getElementById("budget").addEventListener("input", () => {
   clearTimeout(timer);
