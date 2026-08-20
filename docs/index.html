@@ -909,13 +909,26 @@ function renderCatalog() {
     }</td></tr>`;
     return;
   }
-  tbody.innerHTML = shown.map(r => `<tr>
-      <td><span class="name">${esc(r.name)}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}</td>
+  tbody.innerHTML = shown.map(r => {
+    const cities = r.cities || {};
+    const others = Object.entries(cities)
+      .filter(([c]) => c !== r.city)
+      .sort((a, b) => a[1] - b[1]);
+    const allCities = others.length
+      ? `<details class="recipe"><summary>ещё ${others.length} город${others.length > 1 ? "а" : ""}</summary>
+          <div>${others.map(([c, p]) => `${esc(c)}: ${fmt(p)}`).join("<br>")}</div></details>`
+      : "";
+    return `<tr>
+      <td>
+        <span class="name">${esc(r.name)}</span>${r.ench ? ` <span class="ench">.${r.ench}</span>` : ""}
+        ${allCities}
+      </td>
       <td>${esc(r.city)}</td>
       <td class="num">${r.city_price !== null ? fmt(r.city_price) : "—"}</td>
       <td class="num">${r.bm_instant !== null ? fmt(r.bm_instant) : "—"}</td>
       <td class="num">${r.bm_order !== null ? fmt(r.bm_order) : "—"}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
   if (filtered.length > 100) {
     tbody.innerHTML += `<tr><td colspan="5" class="empty">и ещё ${filtered.length - 100} — уточни поиск</td></tr>`;
   }

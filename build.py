@@ -121,22 +121,28 @@ def build_catalog(cfg: dict, recs: dict, prices) -> list:
     max_age = cfg["filters"]["max_price_age_hours"]
     out = []
     for item_id, rec in recs.items():
-        best_city, best_price = "", None
+        # Цена по каждому городу — не только самая дешёвая. Раньше отбрасывали
+        # всё, кроме минимума; данные всё равно уже собраны при обычном сборе,
+        # держать их все — это просто не выбрасывать то, что и так есть.
+        by_city = {}
         for city in cfg["buy_cities"]:
             quote = prices.buy_cost(item_id, city, max_age)
-            if quote and (best_price is None or quote[0] < best_price):
-                best_city, best_price = city, quote[0]
+            if quote:
+                by_city[city] = round(quote[0])
+        best_city = min(by_city, key=by_city.get) if by_city else ""
+        best_price = by_city.get(best_city)
 
         bm_instant = prices.sell_instant(item_id, cfg["sell_location"], max_age)
         bm_order = prices.sell_order(item_id, cfg["sell_location"], max_age)
-        if best_price is None and not bm_instant and not bm_order:
+        if not by_city and not bm_instant and not bm_order:
             continue  # нигде нет цены — включать в каталог нечего
 
         out.append({
             "id": item_id, "name": rec["name"], "tier": rec["tier"], "ench": rec["enchant"],
             "type": rec.get("craft_category", ""),
             "cat": classify(item_id, rec.get("section", "")),
-            "city": best_city, "city_price": round(best_price) if best_price else None,
+            "city": best_city, "city_price": best_price,
+            "cities": by_city,
             "bm_instant": round(bm_instant[0]) if bm_instant else None,
             "bm_order": round(bm_order[0]) if bm_order else None,
         })
