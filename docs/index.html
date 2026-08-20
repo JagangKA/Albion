@@ -95,6 +95,12 @@
     position: fixed; inset: 0; background: rgba(0,0,0,.55);
     display: flex; align-items: center; justify-content: center; z-index: 50;
   }
+  /* Классовое display:flex — авторское CSS-правило, оно бьёт браузерное
+     [hidden]{display:none} по каскаду вне зависимости от специфичности
+     (происхождение правила важнее селектора). Без этой строки атрибут
+     hidden присутствует в разметке, но ни на что не влияет — окно висит
+     поверх всей страницы с первой же загрузки, а не только по клику. */
+  .modal-backdrop[hidden] { display: none; }
   .modal {
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     padding: 16px 20px; max-width: 620px; width: 92vw;
