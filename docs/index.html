@@ -236,6 +236,11 @@
     <input type="checkbox" id="focus"> <span>фокус-очки</span>
   </label>
 
+  <div class="ctl">
+    <label for="myReturn" title="Переопределяет встроенные 15%/43% твоим реальным возвратом по мастерству — пересчитывается прямо в браузере по уже загруженному составу, без обращения к серверу">мой возврат</label>
+    <input type="number" id="myReturn" placeholder="напр. 52" min="0" max="95" style="width:70px">
+    <span style="color:var(--dim)">%</span>
+  </div>
 
   <div class="tabs">
     <button id="tabTable" class="tab active">крафт</button>
@@ -625,6 +630,36 @@ function updateCatCounts(rows) {
   });
 }
 
+// Станционный сбор и налог — фиксированные проценты из config.json.
+// Держим их тут константой, а не тянем из данных: значения меняются редко,
+// а заводить под них ещё один файл ради одной цифры — лишний повод для сборки.
+// Если поменяешь station_fee_pct / sales_tax_* в config.json — поправь и тут.
+const STATION_FEE_PCT = 0.03;
+
+// Личный процент возврата: у каждого игрока свой уровень мастерства,
+// а встроенный расчёт знает только два случая — 15% (без фокуса) и 43%
+// (с фокусом). Пересчитываем по уже загруженному составу (r.recipe),
+// прямо в браузере — новых запросов к серверу не требуется.
+function applyMyReturn(rows) {
+  const pct = parseFloat(document.getElementById("myReturn").value);
+  if (!pct || pct <= 0) return rows; // поле пустое — ничего не трогаем
+  const rr = Math.min(pct, 95) / 100;
+  const tax = INDEX.premium ? 0.04 : 0.08;
+
+  return rows.map(r => {
+    if (!r.recipe || !r.recipe.length) return r; // у флипа нет разбивки — пропускаем
+    let cost = 0;
+    for (const m of r.recipe) {
+      cost += m.ret ? m.p * m.n * (1 - rr) : m.p * m.n;
+    }
+    cost *= 1 + STATION_FEE_PCT;
+    const revenue = r.sell_price != null ? r.sell_price * (1 - tax) : r.cost + r.profit;
+    const profit = revenue - cost;
+    return { ...r, cost: Math.round(cost), profit: Math.round(profit),
+             margin: cost > 0 ? Math.round(profit / cost * 1000) / 10 : 0 };
+  });
+}
+
 // Поиск и категория — тоже на клиенте, без обращения к серверу. Применяются
 // ДО расчёта бюджета: иначе обрезка топ-60 могла бы скрыть то, что находится
 // поиском, но не попало в первую сотню по прибыли.
@@ -680,7 +715,8 @@ async function load() {
 
   updateCatCounts(mode.rows);
   populateTypeFilter(mode.rows);
-  const filtered = filterRows(mode.rows);
+  const withReturn = applyMyReturn(mode.rows);
+  const filtered = filterRows(withReturn);
   const priced = sortRows(applyBudget(filtered, budget));
   render({
     updated_at: INDEX.generated_at,
@@ -903,7 +939,10 @@ async function loadFlip() {
       '<tr><td colspan="11" class="empty">не удалось загрузить данные</td></tr>';
     return;
   }
-  const priced = applyBudget(mode.rows, budget).slice(0, 60);
+  // Флипу личный возврат не мешает: у него единственный материал в составе
+  // всегда помечен невозвращаемым (это же не крафт), applyMyReturn такие
+  // строки просто не трогает — вызываем для единообразия, не ради эффекта.
+  const priced = applyBudget(applyMyReturn(mode.rows), budget).slice(0, 60);
 
   const best = priced[0];
   document.getElementById("flipCards").innerHTML = `
@@ -956,7 +995,7 @@ function buildPlan() {
   const algo = document.getElementById("planAlgo").value;
 
   fetchMode(`${place}-${focus}`).then(mode => {
-    const candidates = mode.rows
+    const candidates = applyMyReturn(mode.rows)
       .filter(r => r.cost > 0 && r.cost <= budget)
       .map(r => {
         // предел по рынку: сколько дневной ёмкости разрешаем занять
