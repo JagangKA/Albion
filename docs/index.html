@@ -35,7 +35,7 @@
   button:hover { background: #303643; }
   button.primary { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
   .switch { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
-  .tabs { display: flex; gap: 4px; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
   .tab {
     padding: 6px 16px; background: transparent; border: 1px solid var(--line);
     color: var(--dim);
@@ -59,11 +59,18 @@
   .card .v { font-size: 20px; font-weight: 600; margin-top: 2px; }
   .card .v.good { color: var(--good); }
 
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+  /* Таблицы шире экрана скроллятся ВНУТРИ себя, страница — никогда:
+     overflow-x:auto на .table-wrap по спецификации CSS заодно переводит
+     overflow-y в auto (нельзя оставить одну ось visible, если другая нет),
+     а это меняет контекст прилипания для position:sticky у th — снаружи
+     обёртки sticky-к-странице у неё больше не работает. Поэтому убран,
+     а не оставлен тихо сломанным. */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 720px; }
+  th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th {
     color: var(--dim); font-weight: 500; font-size: 12px; text-align: right;
-    position: sticky; top: 57px; background: var(--bg); cursor: help;
+    background: var(--bg); cursor: help;
   }
   th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
   tbody tr:hover { background: #1a1d25; }
@@ -265,7 +272,7 @@
     <button id="planBuild" class="primary">составить план</button>
   </div>
   <div class="cards" id="planCards"></div>
-  <table>
+  <div class="table-wrap"><table>
     <thead>
       <tr>
         <th title="Название предмета и уровень зачарования">предмет</th>
@@ -278,7 +285,7 @@
       </tr>
     </thead>
     <tbody id="planRows"></tbody>
-  </table>
+  </table></div>
   <div class="note" id="planEmpty" hidden>
     Пустой бюджет под текущие фильтры. Подними бюджет, увеличь «дней на продажу»
     или долю рынка — план соберётся из более широкого набора позиций.
@@ -293,7 +300,7 @@
     и Чёрным рынком.
   </p>
   <div class="cards" id="flipCards"></div>
-  <table>
+  <div class="table-wrap"><table>
     <thead>
       <tr>
         <th title="Название предмета и уровень зачарования">предмет</th>
@@ -310,7 +317,7 @@
       </tr>
     </thead>
     <tbody id="flipRows"></tbody>
-  </table>
+  </table></div>
 </div>
 
 <div class="wrap" id="catalogView" hidden>
@@ -323,7 +330,7 @@
     <input type="search" id="catalogSearch" placeholder="поиск по названию">
   </div>
   <div class="cards" id="catalogCards"></div>
-  <table>
+  <div class="table-wrap"><table>
     <thead>
       <tr>
         <th title="Название предмета и уровень зачарования">предмет</th>
@@ -334,7 +341,7 @@
       </tr>
     </thead>
     <tbody id="catalogRows"></tbody>
-  </table>
+  </table></div>
 </div>
 
 <div class="wrap" id="tableView">
@@ -358,7 +365,7 @@
     </select>
   </div>
   <div class="cards" id="cards"></div>
-  <table>
+  <div class="table-wrap"><table>
     <thead>
       <tr>
         <th title="Название предмета и уровень зачарования">предмет</th>
@@ -377,7 +384,7 @@
       </tr>
     </thead>
     <tbody id="rows"></tbody>
-  </table>
+  </table></div>
   <div class="donate" id="donate" hidden></div>
 
   <div class="foot">
